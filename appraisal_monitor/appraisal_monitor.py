@@ -445,7 +445,7 @@ def send_to_ha(alert):
     # 3. Phone notification
     try:
         r = requests.post(
-            f"{HA_URL}/api/services/notify/mobile_app_robs_s23_ultra",
+            f"{HA_URL}/api/services/notify/mobile_app_rob_s_s23_ultra",
             headers=headers,
             json={
                 "title": notification_title,
