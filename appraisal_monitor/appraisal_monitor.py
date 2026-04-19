@@ -129,7 +129,7 @@ RULES = [
         "name": "SOLIDIFI_UPDATE",
         "account": "ontarioappraiser@gmail.com",
         "from_address": "values@solidifi.com",
-        "subject_contains": ["Status Update"],
+        "subject_contains": ["Status Update", "Order Updated", "Off Hold", "Appraisal Order Details Changed", "Notice of Appraisal Delay", "Appraisal Order Off Hold"],
         "alert_type": "update",
         "icon": "ℹ️",
         "label": "SOLIDIFI UPDATE",
