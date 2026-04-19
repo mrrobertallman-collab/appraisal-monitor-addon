@@ -26,8 +26,11 @@ OPTIONS_FILE = "/data/options.json"
 try:
     with open(OPTIONS_FILE) as f:
         options = json.load(f)
-except Exception:
+except Exception as e:
     options = {}
+    print(f"Failed to load options: {e}")
+
+print(f"Options keys found: {list(options.keys())}")
 
 GMAIL_ACCOUNTS = [
     {
