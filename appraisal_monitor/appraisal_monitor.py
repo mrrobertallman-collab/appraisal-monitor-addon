@@ -11,32 +11,41 @@ import email.header
 import re
 import time
 import os
+import json
 import logging
 from datetime import datetime, timezone
 
 import requests
 
 # ─────────────────────────────────────────────
-# CONFIGURATION
+# CONFIGURATION — reads from HA add-on options
 # ─────────────────────────────────────────────
+
+OPTIONS_FILE = "/data/options.json"
+
+try:
+    with open(OPTIONS_FILE) as f:
+        options = json.load(f)
+except Exception:
+    options = {}
 
 GMAIL_ACCOUNTS = [
     {
-        "email": os.environ.get("GMAIL_ACCOUNT_1", "ontarioresidentialappraisal@gmail.com"),
-        "app_password": os.environ.get("APP_PASSWORD_1", "YOUR_APP_PASSWORD_1"),
+        "email": options.get("gmail_account_1", "ontarioresidentialappraisal@gmail.com"),
+        "app_password": options.get("app_password_1", ""),
         "label": "RPS Account"
     },
     {
-        "email": os.environ.get("GMAIL_ACCOUNT_2", "ontarioappraiser@gmail.com"),
-        "app_password": os.environ.get("APP_PASSWORD_2", "YOUR_APP_PASSWORD_2"),
+        "email": options.get("gmail_account_2", "ontarioappraiser@gmail.com"),
+        "app_password": options.get("app_password_2", ""),
         "label": "Main Account"
     }
 ]
 
 HA_URL = "http://homeassistant.local:8123"
-HA_TOKEN = os.environ.get("HA_TOKEN", "YOUR_HA_LONG_LIVED_TOKEN")
-POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
-LOG_LEVEL = os.environ.get("LOG_LEVEL", "info").upper()
+HA_TOKEN = options.get("ha_token", "")
+POLL_INTERVAL = int(options.get("poll_interval", 60))
+LOG_LEVEL = options.get("log_level", "info").upper()
 
 # ─────────────────────────────────────────────
 # LOGGING
