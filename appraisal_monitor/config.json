@@ -25,6 +25,5 @@
     "ha_token": "str",
     "poll_interval": "int(30,300)",
     "log_level": "list(debug|info|warning|error)"
-  },
-  "image": "ghcr.io/home-assistant/{arch}-base-python:3.11"
+  }
 }
