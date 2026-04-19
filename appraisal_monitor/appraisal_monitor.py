@@ -107,7 +107,7 @@ RULES = [
         "name": "SOLIDIFI_NEW",
         "account": "ontarioappraiser@gmail.com",
         "from_address": "values@solidifi.com",
-        "subject_contains": ["New Appraisal Order", "Fee and/or Due Date Change Approved"],
+        "subject_contains": ["New Appraisal Order", "New Order", "Fee and/or Due Date Change Approved"],
         "alert_type": "new_order",
         "icon": "🔔",
         "label": "SOLIDIFI",
