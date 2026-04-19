@@ -1,0 +1,13 @@
+ARG BUILD_FROM
+FROM $BUILD_FROM
+
+# Install Python dependencies
+RUN pip3 install requests
+
+# Copy files
+COPY appraisal_monitor.py /appraisal_monitor.py
+COPY run.sh /run.sh
+
+RUN chmod +x /run.sh
+
+CMD ["/run.sh"]
