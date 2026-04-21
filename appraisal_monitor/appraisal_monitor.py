@@ -255,13 +255,59 @@ def get_email_body(msg):
 
 
 def extract_rps_subject(subject, body):
-    """Extract address from RPS subject line."""
-    # Format: Action Required: New Order Available for Assignment / ... – ADDRESS
+    """Extract from RPS email body."""
     address = ""
+    order_id = ""
+    client_name = ""
+    appraisal_type = ""
+    condition_date = ""
+    special_instructions = ""
+    lender = ""
+
     match = re.search(r'[–—-]\s*(.+?)(?:\s*$)', subject)
     if match:
         address = match.group(1).strip()
-    return {"address": address, "order_id": "", "lender": "", "mortgage": "", "who_pays": ""}
+
+    if body:
+        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            address = match.group(1).strip()
+
+        match = re.search(r'RPS Order ID[:\s]+(\d+)', body, re.IGNORECASE)
+        if match:
+            order_id = match.group(1).strip()
+
+        match = re.search(r'Client Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            client_name = match.group(1).strip()
+
+        match = re.search(r'Appraisal Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            appraisal_type = match.group(1).strip()
+
+        match = re.search(r'Condition Date[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            condition_date = match.group(1).strip()
+
+        match = re.search(r'Special Instruction[s]?[:\s]+(.+?)(?:\n\n|$)', body, re.IGNORECASE | re.DOTALL)
+        if match:
+            val = match.group(1).strip()
+            if val:
+                special_instructions = val[:200]
+                lender_match = re.search(r'^(\w+)\s+Full Appraisal', val, re.IGNORECASE)
+                if lender_match:
+                    lender = lender_match.group(1).strip()
+
+    return {
+        "address": address,
+        "order_id": order_id,
+        "client_name": client_name,
+        "mortgage": appraisal_type,
+        "who_pays": condition_date,
+        "lender": lender,
+        "special_instructions": special_instructions,
+        "cof_deadline": ""
+    }
 
 
 def extract_rps_cancelled_subject(subject, body):
