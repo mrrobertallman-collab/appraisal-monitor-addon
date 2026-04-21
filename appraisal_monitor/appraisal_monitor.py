@@ -15,6 +15,7 @@ import requests
 import logging
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from bs4 import BeautifulSoup
 
 # ─────────────────────────────────────────────
 # CONFIGURATION
@@ -239,103 +240,168 @@ def strip_html(text):
     return clean.strip()
 
 def get_email_body(msg):
-    body = ""
+    """Return best available body. Prefer HTML for structured vendor emails."""
+    plain_body = ""
+    html_body = ""
+
     if msg.is_multipart():
         for part in msg.walk():
-            if part.get_content_type() == "text/plain":
-                charset = part.get_content_charset() or "utf-8"
-                body = part.get_payload(decode=True).decode(charset, errors="replace")
-                break
-        if not body:
-            for part in msg.walk():
-                if part.get_content_type() == "text/html":
-                    charset = part.get_content_charset() or "utf-8"
-                    body = part.get_payload(decode=True).decode(charset, errors="replace")
-                    body = strip_html(body)
-                    break
+            ctype = part.get_content_type()
+            charset = part.get_content_charset() or "utf-8"
+
+            try:
+                payload = part.get_payload(decode=True)
+                if payload is None:
+                    continue
+                decoded = payload.decode(charset, errors="replace")
+            except Exception:
+                continue
+
+            if ctype == "text/html" and not html_body:
+                html_body = decoded
+            elif ctype == "text/plain" and not plain_body:
+                plain_body = decoded
     else:
         charset = msg.get_content_charset() or "utf-8"
-        body = msg.get_payload(decode=True).decode(charset, errors="replace")
-        if '<' in body and '>' in body:
-            body = strip_html(body)
-    return body
+        raw = msg.get_payload(decode=True)
+        if raw:
+            decoded = raw.decode(charset, errors="replace")
+            if "<html" in decoded.lower() or "<table" in decoded.lower() or "<div" in decoded.lower():
+                html_body = decoded
+            else:
+                plain_body = decoded
+
+    return html_body or plain_body or ""
+
+
+def html_to_lines(html):
+    """Convert HTML to clean line-based text while preserving structure."""
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text("\n")
+    lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+    return [line for line in lines if line]
+
+
+def get_line_value(lines, label, max_lookahead=3):
+    """
+    Find a label in line list and return the next useful line(s).
+    Works for layouts where label and value are on separate lines.
+    """
+    label_norm = re.sub(r"[:\s]+$", "", label.strip().lower())
+
+    stop_labels = {
+        "property address", "rps order id", "emv", "client name",
+        "add-ons requested", "appraisal type", "condition date",
+        "contact name", "contact number", "special instruction",
+        "special instructions", "for additional instructions, please review",
+        "regards,", "rps | real property solutions"
+    }
+
+    for i, line in enumerate(lines):
+        line_norm = re.sub(r"[:\s]+$", "", line.strip().lower())
+        if line_norm == label_norm:
+            collected = []
+            for j in range(i + 1, min(i + 1 + max_lookahead, len(lines))):
+                candidate = lines[j].strip()
+                if not candidate:
+                    continue
+                if candidate.lower() in stop_labels:
+                    break
+                collected.append(candidate)
+                if label_norm not in {"special instruction", "special instructions"}:
+                    break
+            return " ".join(collected).strip()
+
+    return ""
+
+
+def extract_rps_from_html(html, subject=""):
+    lines = html_to_lines(html)
+
+    address = get_line_value(lines, "Property Address")
+    order_id = get_line_value(lines, "RPS Order ID")
+    emv = get_line_value(lines, "EMV")
+    client_name = get_line_value(lines, "Client Name")
+    appraisal_type = get_line_value(lines, "Appraisal Type")
+    condition_date = get_line_value(lines, "Condition Date")
+    contact_name = get_line_value(lines, "Contact Name")
+    contact_number = get_line_value(lines, "Contact Number")
+    special_instructions = get_line_value(lines, "Special Instruction", max_lookahead=6)
+
+    if not address:
+        m = re.search(r"[–—-]\s*(.+?)\s*$", subject)
+        if m:
+            address = m.group(1).strip()
+
+    address = re.sub(r"^[A-Z]\s+", "", address).strip()
+    order_id = re.sub(r"[^\d]", "", order_id)
+    emv = re.sub(r"[^\d.,]", "", emv)
+    contact_number = re.sub(r"[^\d]", "", contact_number)
+    special_instructions = re.sub(r"\s+", " ", special_instructions).strip()
+
+    lender = ""
+    if special_instructions:
+        m = re.match(r"^([A-Za-z0-9&.\- ]+?)\s+Full Appraisal", special_instructions, re.IGNORECASE)
+        if m:
+            lender = m.group(1).strip()
+        else:
+            m = re.match(r"^([A-Za-z0-9&.\- ]+?)\s", special_instructions)
+            if m:
+                lender = m.group(1).strip()
+
+    return {
+        "address": address,
+        "order_id": order_id,
+        "client_name": client_name,
+        "mortgage": appraisal_type,
+        "who_pays": condition_date,
+        "lender": lender,
+        "special_instructions": special_instructions,
+        "cof_deadline": "",
+        "emv": emv,
+        "contact_name": contact_name,
+        "contact_number": contact_number,
+    }
 
 
 def extract_rps_subject(subject, body):
-    """Extract from RPS email body."""
-    address = ""
-    order_id = ""
-    client_name = ""
-    appraisal_type = ""
-    condition_date = ""
-    special_instructions = ""
+    """Extract from RPS email body. Prefer structured HTML parsing."""
+    if "<html" in body.lower() or "<table" in body.lower() or "<div" in body.lower():
+        return extract_rps_from_html(body, subject)
+
+    # Plain-text fallback
+    lines = [re.sub(r"\s+", " ", line).strip() for line in body.splitlines() if line.strip()]
+
+    address = get_line_value(lines, "Property Address")
+    order_id = get_line_value(lines, "RPS Order ID")
+    emv = get_line_value(lines, "EMV")
+    client_name = get_line_value(lines, "Client Name")
+    appraisal_type = get_line_value(lines, "Appraisal Type")
+    condition_date = get_line_value(lines, "Condition Date")
+    contact_name = get_line_value(lines, "Contact Name")
+    contact_number = get_line_value(lines, "Contact Number")
+    special_instructions = get_line_value(lines, "Special Instruction", max_lookahead=6)
+
+    if not address:
+        m = re.search(r"[–—-]\s*(.+?)\s*$", subject)
+        if m:
+            address = m.group(1).strip()
+
+    address = re.sub(r"^[A-Z]\s+", "", address).strip()
+    order_id = re.sub(r"[^\d]", "", order_id)
+    emv = re.sub(r"[^\d.,]", "", emv)
+    contact_number = re.sub(r"[^\d]", "", contact_number)
+    special_instructions = re.sub(r"\s+", " ", special_instructions).strip()
+
     lender = ""
-    emv = ""
-    contact_name = ""
-    contact_number = ""
-
-    # Cut off repeated sections first
-    body = body.split("Form Type:")[0]
-    body = body.split("Due Date:")[0] if body.count("Due Date:") > 1 else body
-
-    match = re.search(r'[–—-]\s*(.+?)(?:\s*$)', subject)
-    if match:
-        address = match.group(1).strip()
-
-    if body:
-        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            address = match.group(1).strip()
-
-        match = re.search(r'RPS Order ID[:\s]+(\d+)', body, re.IGNORECASE)
-        if match:
-            order_id = match.group(1).strip()
-
-        match = re.search(r'Client Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            client_name = match.group(1).strip()
-
-        match = re.search(r'Appraisal Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            appraisal_type = match.group(1).strip()
-
-        match = re.search(r'Condition Date[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            condition_date = match.group(1).strip()
-
-        match = re.search(r'Contact Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            contact_name = match.group(1).strip()
-
-        match = re.search(r'Contact Number[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            contact_number = match.group(1).strip()
-
-        match = re.search(r'EMV[:\s]+\$?([\d,]+(?:\.\d{2})?)', body, re.IGNORECASE)
-        if match:
-            emv = match.group(1).strip()
-
-        match = re.search(
-            r'Special Instruction[s]?[:\s]+(.+?)(?:For additional instructions|Regards,|If you have any questions|$)',
-            body,
-            re.IGNORECASE | re.DOTALL
-        )
-        if match:
-            val = match.group(1).strip()
-            val = re.sub(r'\s+', ' ', val).strip()
-            special_instructions = val[:220]
-
-            lender_match = re.search(r'^([A-Za-z0-9&.\- ]+?)\s+Full Appraisal', val, re.IGNORECASE)
-            if lender_match:
-                lender = lender_match.group(1).strip()
-
-        if not lender:
-            match = re.search(r'Lender[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-            if match:
-                lender = match.group(1).strip()
-
-    address = re.sub(r'^[A-Z]\s+', '', address).strip()
-    address = address.title()
+    if special_instructions:
+        m = re.match(r"^([A-Za-z0-9&.\- ]+?)\s+Full Appraisal", special_instructions, re.IGNORECASE)
+        if m:
+            lender = m.group(1).strip()
+        else:
+            m = re.match(r"^([A-Za-z0-9&.\- ]+?)\s", special_instructions)
+            if m:
+                lender = m.group(1).strip()
 
     return {
         "address": address,
@@ -633,7 +699,10 @@ def send_to_ha(alert):
             "buzzer": alert.get("buzzer", ""),
             "display_text": display_text,
             "last_updated": datetime.now(timezone.utc).isoformat(),
-            "rule_name": alert.get("rule_name", "")
+            "rule_name": alert.get("rule_name", ""),
+            "emv": alert.get("emv", ""),
+            "contact_name": alert.get("contact_name", ""),
+            "contact_number": alert.get("contact_number", "")
         }
     }
 
