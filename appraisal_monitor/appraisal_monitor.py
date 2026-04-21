@@ -343,18 +343,63 @@ def extract_solidifi_body(subject, body):
 
 
 def extract_nationwide_body(subject, body):
-    """Extract NAS# and address from Nationwide body."""
+    """Extract from Nationwide email body."""
     order_id = ""
     address = ""
-    # NAS# from subject
+    lender = ""
+    client_name = ""
+    service_type = ""
+    loan_type = ""
+    cof_deadline = ""
+    special_instructions = ""
+
     match = re.search(r'NAS\s*#?\s*(\d+)', subject, re.IGNORECASE)
     if match:
         order_id = "NAS#" + match.group(1)
-    # Address from body
-    match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-    if match:
-        address = match.group(1).strip()
-    return {"address": address, "order_id": order_id, "lender": "", "mortgage": "", "who_pays": ""}
+
+    if body:
+        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            address = match.group(1).strip()
+
+        match = re.search(r'Lender[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            lender = match.group(1).strip()
+
+        match = re.search(r'Applicant Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            client_name = match.group(1).strip()
+
+        match = re.search(r'Service Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            service_type = match.group(1).strip()
+
+        match = re.search(r'Loan Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            loan_type = match.group(1).strip()
+
+        match = re.search(r'COF Deadline[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            val = match.group(1).strip()
+            if val:
+                cof_deadline = val
+
+        match = re.search(r'IMPORTANT NOTES.*?FROM CLIENT[:\s]*\n(.+?)(?:\n\n|\{By clicking|$)', body, re.IGNORECASE | re.DOTALL)
+        if match:
+            val = match.group(1).strip()
+            if val:
+                special_instructions = val
+
+    return {
+        "address": address,
+        "order_id": order_id,
+        "lender": lender,
+        "client_name": client_name,
+        "mortgage": service_type,
+        "who_pays": loan_type,
+        "special_instructions": special_instructions,
+        "cof_deadline": cof_deadline
+    }
 
 
 def extract_nas_special_subject(subject, body):
