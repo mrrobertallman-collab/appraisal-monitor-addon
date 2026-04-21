@@ -706,6 +706,28 @@ def send_to_ha(alert):
         with open(history_file, "w") as f:
             json.dump(history, f)
         log.info(f"✅ History updated")
+
+        # Push full history to HA sensor for dashboard card
+        history_payload = {
+            "state": f"{len(history)} orders",
+            "attributes": {
+                "friendly_name": "Appraisal Recent Orders",
+                "orders": history,
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+            }
+        }
+        try:
+            r = requests.post(
+                f"{HA_URL}/api/states/sensor.appraisal_recent_orders",
+                headers=headers,
+                json=history_payload,
+                timeout=10
+            )
+            r.raise_for_status()
+            log.info(f"✅ Recent orders sensor updated")
+        except Exception as e:
+            log.error(f"❌ Failed to update recent orders sensor: {e}")
+
     except Exception as e:
         log.error(f"❌ History update failed: {e}")
 
