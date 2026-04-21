@@ -269,7 +269,7 @@ def extract_rps_subject(subject, body):
         address = match.group(1).strip()
 
     if body:
-        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        match = re.search(r'Property Address[:\s]+(.{1,100})(?:\n|Lender|Client|Appraisal|Condition|$)', body, re.IGNORECASE)
         if match:
             address = match.group(1).strip()
 
@@ -277,19 +277,19 @@ def extract_rps_subject(subject, body):
         if match:
             order_id = match.group(1).strip()
 
-        match = re.search(r'Client Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        match = re.search(r'Client Name[:\s]+(.{1,60})(?:\n|Add-on|Appraisal|Condition|$)', body, re.IGNORECASE)
         if match:
             client_name = match.group(1).strip()
 
-        match = re.search(r'Appraisal Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        match = re.search(r'Appraisal Type[:\s]+(.{1,60})(?:\n|Condition|Contact|$)', body, re.IGNORECASE)
         if match:
             appraisal_type = match.group(1).strip()
 
-        match = re.search(r'Condition Date[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        match = re.search(r'Condition Date[:\s]+(.{1,30})(?:\n|Contact|$)', body, re.IGNORECASE)
         if match:
             condition_date = match.group(1).strip()
 
-        match = re.search(r'Special Instruction[s]?[:\s]+(.+?)(?:\n\n|$)', body, re.IGNORECASE | re.DOTALL)
+        match = re.search(r'Special Instruction[s]?[:\s]+(.{1,200})(?:\n\n|For additional|$)', body, re.IGNORECASE | re.DOTALL)
         if match:
             val = match.group(1).strip()
             if val:
@@ -297,7 +297,6 @@ def extract_rps_subject(subject, body):
                 lender_match = re.search(r'^(\w+)\s+Full Appraisal', val, re.IGNORECASE)
                 if lender_match:
                     lender = lender_match.group(1).strip()
-
     return {
         "address": address,
         "order_id": order_id,
