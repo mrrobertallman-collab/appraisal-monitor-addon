@@ -618,7 +618,40 @@ def send_to_ha(alert):
 
     display_text = "\n".join(lines)
 
-    # 1. Update HA sensor
+    # 1. Load and update history FIRST
+    history_file = "/data/appraisal_history.json"
+    try:
+        try:
+            with open(history_file, "r") as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+
+        history.insert(0, {
+            "time": datetime.now(timezone.utc).isoformat(),
+            "label": alert.get("label", ""),
+            "order_id": alert.get("order_id", ""),
+            "address": alert.get("address", ""),
+            "mortgage": alert.get("mortgage", ""),
+            "who_pays": alert.get("who_pays", ""),
+            "due_date": alert.get("who_pays", ""),
+            "lender": alert.get("lender", ""),
+            "client_name": alert.get("client_name", ""),
+            "alert_type": alert.get("alert_type", ""),
+            "special_instructions": alert.get("special_instructions", ""),
+            "vendor": alert.get("vendor", ""),
+            "status": alert.get("status", ""),
+        })
+        history = history[:20]
+
+        with open(history_file, "w") as f:
+            json.dump(history, f)
+        log.info("✅ History updated")
+    except Exception as e:
+        log.error(f"❌ History update failed: {e}")
+        history = []
+
+    # 2. Update HA sensor
     sensor_payload = {
         "state": alert["alert_type"],
         "attributes": {
@@ -643,6 +676,7 @@ def send_to_ha(alert):
             "contact_number": alert.get("contact_number", ""),
             "vendor": alert.get("vendor", ""),
             "status": alert.get("status", ""),
+            "history": history,
         }
     }
 
@@ -658,7 +692,7 @@ def send_to_ha(alert):
     except Exception as e:
         log.error(f"❌ Failed to update HA sensor: {e}")
 
-    # 2. Fire HA event
+    # 3. Fire HA event
     event_payload = {
         "alert_type": alert["alert_type"],
         "label": alert["label"],
@@ -674,63 +708,9 @@ def send_to_ha(alert):
             timeout=10
         )
         r.raise_for_status()
-        log.info(f"✅ HA event fired: appraisal_alert")
+        log.info("✅ HA event fired: appraisal_alert")
     except Exception as e:
         log.error(f"❌ Failed to fire HA event: {e}")
-
-    # 3. Append to history file
-    try:
-        history_file = "/data/appraisal_history.json"
-        try:
-            with open(history_file, "r") as f:
-                history = json.load(f)
-        except Exception:
-            history = []
-
-        history.insert(0, {
-            "time": datetime.now(timezone.utc).isoformat(),
-            "label": alert.get("label", ""),
-            "order_id": alert.get("order_id", ""),
-            "address": alert.get("address", ""),
-            "mortgage": alert.get("mortgage", ""),
-            "lender": alert.get("lender", ""),
-            "client_name": alert.get("client_name", ""),
-            "alert_type": alert.get("alert_type", ""),
-            "special_instructions": alert.get("special_instructions", ""),
-            "vendor": alert.get("vendor", ""),
-            "status": alert.get("status", ""),
-            "who_pays": alert.get("who_pays", ""),
-        })
-        history = history[:20]
-
-        with open(history_file, "w") as f:
-            json.dump(history, f)
-        log.info(f"✅ History updated")
-
-        # Push full history to HA sensor for dashboard card
-        history_payload = {
-            "state": f"{len(history)} orders",
-            "attributes": {
-                "friendly_name": "Appraisal Recent Orders",
-                "orders": history,
-                "last_updated": datetime.now(timezone.utc).isoformat(),
-            }
-        }
-        try:
-            r = requests.post(
-                f"{HA_URL}/api/states/sensor.appraisal_recent_orders",
-                headers=headers,
-                json=history_payload,
-                timeout=10
-            )
-            r.raise_for_status()
-            log.info(f"✅ Recent orders sensor updated")
-        except Exception as e:
-            log.error(f"❌ Failed to update recent orders sensor: {e}")
-
-    except Exception as e:
-        log.error(f"❌ History update failed: {e}")
-
 
 # ─────────────────────────────────────────────
 # EMAIL MATCHING
