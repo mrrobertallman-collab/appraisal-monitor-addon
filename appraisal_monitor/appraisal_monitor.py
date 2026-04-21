@@ -583,46 +583,21 @@ def extract_rps_cancelled_subject(subject, body):
 
 
 def extract_solidifi_body(subject, body):
-    """Extract from Solidifi email body."""
-    order_id = ""
-    address = ""
-    lender = ""
-    client_name = ""
-    form_type = ""
-    due_date = ""
-    special_instructions = ""
+    """Improved Solidifi parser - now uses clean line extraction like RPS."""
+    lines = html_to_lines(body)
 
+    # Order ID (from subject or body)
     match = re.search(r'(OR\d+)', subject)
-    if match:
-        order_id = match.group(1)
+    order_id = match.group(1) if match else get_line_value(lines, "Order ID Number")
 
-    if body:
-        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            address = match.group(1).strip()
+    address = get_line_value(lines, "Property Address")
+    lender = get_line_value(lines, "Lender")
+    client_name = get_line_value(lines, "Borrower Name")
+    form_type = get_line_value(lines, "Appraisal Form Type")
+    due_date = get_line_value(lines, "Due Date")
+    special_instructions = get_line_value(lines, "Special Instructions", max_lookahead=6)
 
-        match = re.search(r'Lender[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            lender = match.group(1).strip()
-
-        match = re.search(r'Borrower Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            client_name = match.group(1).strip()
-
-        match = re.search(r'Appraisal Form Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            form_type = match.group(1).strip()
-
-        match = re.search(r'Due Date[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            due_date = match.group(1).strip()
-
-        match = re.search(r'Special Instructions[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            val = match.group(1).strip()
-            if val:
-                special_instructions = val
-
+    # Fallback address from subject if not found in body
     if not address:
         parts = subject.split(" - ")
         if len(parts) >= 3:
@@ -638,67 +613,6 @@ def extract_solidifi_body(subject, body):
         "special_instructions": special_instructions,
         "cof_deadline": ""
     }
-
-
-def extract_nationwide_body(subject, body):
-    """Extract from Nationwide email body."""
-    order_id = ""
-    address = ""
-    lender = ""
-    client_name = ""
-    service_type = ""
-    loan_type = ""
-    cof_deadline = ""
-    special_instructions = ""
-
-    match = re.search(r'NAS\s*#?\s*(\d+)', subject, re.IGNORECASE)
-    if match:
-        order_id = "NAS#" + match.group(1)
-
-    if body:
-        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            address = match.group(1).strip()
-
-        match = re.search(r'Lender[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            lender = match.group(1).strip()
-
-        match = re.search(r'Applicant Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            client_name = match.group(1).strip()
-
-        match = re.search(r'Service Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            service_type = match.group(1).strip()
-
-        match = re.search(r'Loan Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            loan_type = match.group(1).strip()
-
-        match = re.search(r'COF Deadline[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            val = match.group(1).strip()
-            if val:
-                cof_deadline = val
-
-        match = re.search(r'IMPORTANT NOTES.*?FROM CLIENT[:\s]*\n(.+?)(?:\n\n|\{By clicking|$)', body, re.IGNORECASE | re.DOTALL)
-        if match:
-            val = match.group(1).strip()
-            if val:
-                special_instructions = val
-
-    return {
-        "address": address,
-        "order_id": order_id,
-        "lender": lender,
-        "client_name": client_name,
-        "mortgage": service_type,
-        "who_pays": loan_type,
-        "special_instructions": special_instructions,
-        "cof_deadline": cof_deadline
-    }
-
 
 def extract_nas_special_subject(subject, body):
     """Extract from Nationwide special subject.
