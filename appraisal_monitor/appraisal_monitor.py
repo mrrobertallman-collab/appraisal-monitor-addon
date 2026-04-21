@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+"""
 Appraisal Email Monitor
 Monitors Gmail accounts for appraisal requests and sends alerts to Home Assistant.
 Supports: RPS, Solidifi, Nationwide, Alpine Credits
