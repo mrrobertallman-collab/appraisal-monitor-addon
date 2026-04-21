@@ -223,9 +223,15 @@ def decode_header_value(value):
             parts.append(part)
     return " ".join(parts)
 
+def strip_html(text):
+    if not text:
+        return text
+    clean = re.sub(r'<[^>]+>', ' ', text)
+    clean = clean.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ').replace('&#160;', ' ')
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return clean
 
 def get_email_body(msg):
-    """Extract plain text body from email."""
     body = ""
     if msg.is_multipart():
         for part in msg.walk():
@@ -233,9 +239,18 @@ def get_email_body(msg):
                 charset = part.get_content_charset() or "utf-8"
                 body = part.get_payload(decode=True).decode(charset, errors="replace")
                 break
+        if not body:
+            for part in msg.walk():
+                if part.get_content_type() == "text/html":
+                    charset = part.get_content_charset() or "utf-8"
+                    body = part.get_payload(decode=True).decode(charset, errors="replace")
+                    body = strip_html(body)
+                    break
     else:
         charset = msg.get_content_charset() or "utf-8"
         body = msg.get_payload(decode=True).decode(charset, errors="replace")
+        if '<' in body and '>' in body:
+            body = strip_html(body)
     return body
 
 
