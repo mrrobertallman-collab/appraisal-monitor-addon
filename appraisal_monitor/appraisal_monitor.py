@@ -439,7 +439,7 @@ def extract_alpine_cancelled(subject, body):
 EXTRACTORS = {
     "rps_subject": extract_rps_subject,
     "rps_cancelled_subject": extract_rps_cancelled_subject,
-    "solidifi_subject": extract_solidifi_subject,
+    "solidifi_body": extract_solidifi_body,
     "nationwide_body": extract_nationwide_body,
     "nas_special_subject": extract_nas_special_subject,
     "alpine_body": extract_alpine_body,
