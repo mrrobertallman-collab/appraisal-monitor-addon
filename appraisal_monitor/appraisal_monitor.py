@@ -226,9 +226,17 @@ def decode_header_value(value):
 def strip_html(text):
     if not text:
         return text
+    # Insert newlines before known field labels
+    for label in ['Property Address', 'RPS Order ID', 'EMV:', 'Client Name', 'Add-ons Requested',
+                  'Appraisal Type', 'Condition Date', 'Contact Name', 'Contact Number',
+                  'Special Instruction', 'Lender:', 'Borrower Name', 'Due Date',
+                  'Appraisal Form Type', 'Applicant Name', 'Service Type', 'Loan Type',
+                  'COF Deadline', 'IMPORTANT NOTES']:
+        text = re.sub(r'(?i)(' + re.escape(label) + r')', r'\n\1', text)
     clean = re.sub(r'<[^>]+>', ' ', text)
     clean = clean.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&nbsp;', ' ').replace('&#160;', ' ')
     clean = re.sub(r'\s+', ' ', clean).strip()
+    clean = re.sub(r' \n ', '\n', clean)
     return clean
 
 def get_email_body(msg):
