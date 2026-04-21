@@ -10,54 +10,45 @@ import email
 import email.header
 import re
 import time
-import os
 import json
+import requests
 import logging
 from datetime import datetime, timezone
-
-import requests
+from email.utils import parsedate_to_datetime
 
 # ─────────────────────────────────────────────
-# CONFIGURATION — reads from HA add-on options
+# CONFIGURATION
 # ─────────────────────────────────────────────
 
-OPTIONS_FILE = "/data/options.json"
-
-try:
-    with open(OPTIONS_FILE) as f:
-        options = json.load(f)
-except Exception as e:
-    options = {}
-    print(f"Failed to load options: {e}")
-
-print(f"Options keys found: {list(options.keys())}")
-
+# Gmail accounts to monitor
 GMAIL_ACCOUNTS = [
     {
-        "email": options.get("gmail_account_1", "ontarioresidentialappraisal@gmail.com"),
-        "app_password": options.get("app_password_1", ""),
+        "email": "ontarioresidentialappraisal@gmail.com",
+        "app_password": "YOUR_APP_PASSWORD_1",   # Google App Password (not regular password)
         "label": "RPS Account"
     },
     {
-        "email": options.get("gmail_account_2", "ontarioappraiser@gmail.com"),
-        "app_password": options.get("app_password_2", ""),
+        "email": "ontarioappraiser@gmail.com",
+        "app_password": "YOUR_APP_PASSWORD_2",
         "label": "Main Account"
     }
 ]
 
+# Home Assistant connection
 HA_URL = "http://homeassistant.local:8123"
-HA_TOKEN = options.get("ha_token", "")
-POLL_INTERVAL = int(options.get("poll_interval", 60))
-LOG_LEVEL = options.get("log_level", "info").upper()
+HA_TOKEN = "YOUR_HA_LONG_LIVED_TOKEN"
 
-# ─────────────────────────────────────────────
-# LOGGING
-# ─────────────────────────────────────────────
+# How often to check email (seconds)
+POLL_INTERVAL = 60
 
+# Logging
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.FileHandler("/config/appraisal_monitor.log"),
+        logging.StreamHandler()
+    ]
 )
 log = logging.getLogger(__name__)
 
@@ -71,6 +62,7 @@ RULES = [
     {
         "name": "RPS_SPECIAL",
         "account": "ontarioresidentialappraisal@gmail.com",
+        "from_domain": "rpsrealsolutions.com",
         "from_address": "quoteinfo@rpsrealsolutions.com",
         "subject_contains": [],
         "alert_type": "urgent",
@@ -83,6 +75,7 @@ RULES = [
         "name": "RPS_STANDARD",
         "account": "ontarioresidentialappraisal@gmail.com",
         "from_domain": "rpsrealsolutions.com",
+        "from_address": "info@rpsrealsolutions.com",
         "subject_contains": ["New Order", "Quote Approved", "Action Required"],
         "alert_type": "new_order",
         "icon": "🔔",
@@ -107,7 +100,7 @@ RULES = [
         "name": "SOLIDIFI_NEW",
         "account": "ontarioappraiser@gmail.com",
         "from_address": "values@solidifi.com",
-        "subject_contains": ["New Appraisal Order", "New Order", "Fee and/or Due Date Change Approved"],
+        "subject_contains": ["New Appraisal Order", "Fee and/or Due Date Change Approved"],
         "alert_type": "new_order",
         "icon": "🔔",
         "label": "SOLIDIFI",
@@ -129,7 +122,7 @@ RULES = [
         "name": "SOLIDIFI_UPDATE",
         "account": "ontarioappraiser@gmail.com",
         "from_address": "values@solidifi.com",
-        "subject_contains": ["Status Update", "Order Updated", "Off Hold", "Appraisal Order Details Changed", "Notice of Appraisal Delay", "Appraisal Order Off Hold"],
+        "subject_contains": ["Status Update"],
         "alert_type": "update",
         "icon": "ℹ️",
         "label": "SOLIDIFI UPDATE",
@@ -215,6 +208,7 @@ RULES = [
 # ─────────────────────────────────────────────
 
 def decode_header_value(value):
+    """Decode email header value."""
     decoded = email.header.decode_header(value)
     parts = []
     for part, charset in decoded:
@@ -226,6 +220,7 @@ def decode_header_value(value):
 
 
 def get_email_body(msg):
+    """Extract plain text body from email."""
     body = ""
     if msg.is_multipart():
         for part in msg.walk():
@@ -240,63 +235,19 @@ def get_email_body(msg):
 
 
 def extract_rps_subject(subject, body):
+    """Extract address from RPS subject line."""
+    # Format: Action Required: New Order Available for Assignment / ... – ADDRESS
     address = ""
-    order_id = ""
-    client_name = ""
-    appraisal_type = ""
-    condition_date = ""
-    special_instructions = ""
-    lender = ""
-
-    # Address from subject (after the dash)
     match = re.search(r'[–—-]\s*(.+?)(?:\s*$)', subject)
     if match:
         address = match.group(1).strip()
-
-    # Extract from body if available
-    if body:
-        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            address = match.group(1).strip()
-
-        match = re.search(r'RPS Order ID[:\s]+(\d+)', body, re.IGNORECASE)
-        if match:
-            order_id = match.group(1).strip()
-
-        match = re.search(r'Client Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            client_name = match.group(1).strip()
-
-        match = re.search(r'Appraisal Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            appraisal_type = match.group(1).strip()
-
-        match = re.search(r'Condition Date[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            condition_date = match.group(1).strip()
-
-        match = re.search(r'Special Instruction[s]?[:\s]+(.+?)(?:\n\n|$)', body, re.IGNORECASE | re.DOTALL)
-        if match:
-            val = match.group(1).strip()
-            if val:
-                special_instructions = val[:200]
-                # Try to extract lender from special instructions
-                lender_match = re.search(r'^(\w+)\s+Full Appraisal', val, re.IGNORECASE)
-                if lender_match:
-                    lender = lender_match.group(1).strip()
-
-    return {
-        "address": address,
-        "order_id": order_id,
-        "client_name": client_name,
-        "mortgage": appraisal_type,
-        "who_pays": condition_date,
-        "lender": lender,
-        "special_instructions": special_instructions
-    }
+    return {"address": address, "order_id": "", "lender": "", "mortgage": "", "who_pays": ""}
 
 
 def extract_rps_cancelled_subject(subject, body):
+    """Extract from RPS cancelled subject.
+    Format: RPS Order Cancelled - RPS Order ID 5025915 - RBC - 4030 HARWOOD RD, Baltimore ON
+    """
     order_id = ""
     lender = ""
     address = ""
@@ -307,131 +258,46 @@ def extract_rps_cancelled_subject(subject, body):
     if len(parts) >= 3:
         lender = parts[2].strip()
     if len(parts) >= 4:
-        address = re.sub(r'\s*-\s*FULL_APPRAISAL.*$', '', parts[3]).strip()
-    return {"address": address, "order_id": order_id, "lender": lender, "mortgage": "", "who_pays": "", "client_name": ""}
+        address = parts[3].strip()
+        # Remove FULL_APPRAISAL suffix if present
+        address = re.sub(r'\s*-\s*FULL_APPRAISAL.*$', '', address).strip()
+    return {"address": address, "order_id": order_id, "lender": lender, "mortgage": "", "who_pays": ""}
 
 
 def extract_solidifi_subject(subject, body):
+    """Extract from Solidifi subject.
+    Format: Solidifi Values - New Appraisal Order - 48 Hillcroft - OR2178309
+    """
     order_id = ""
     address = ""
-    lender = ""
-    client_name = ""
-    form_type = ""
-    due_date = ""
-    special_instructions = ""
-
-    # Order ID from subject
     match = re.search(r'(OR\d+)', subject)
     if match:
         order_id = match.group(1)
-
-    # Extract from body if available
-    if body:
-        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            address = match.group(1).strip()
-
-        match = re.search(r'Lender[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            lender = match.group(1).strip()
-
-        match = re.search(r'Borrower Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            client_name = match.group(1).strip()
-
-        match = re.search(r'Appraisal Form Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            form_type = match.group(1).strip()
-
-        match = re.search(r'Due Date[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            due_date = match.group(1).strip()
-
-        match = re.search(r'Special Instructions[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            val = match.group(1).strip()
-            if val:
-                special_instructions = val
-
-    # Fall back to subject for address if body extraction failed
-    if not address:
-        parts = subject.split(" - ")
-        if len(parts) >= 3:
-            address = re.sub(r'\s*-?\s*OR\d+.*$', '', parts[2]).strip()
-
-    return {
-        "address": address,
-        "order_id": order_id,
-        "lender": lender,
-        "client_name": client_name,
-        "mortgage": form_type,
-        "who_pays": due_date,
-        "special_instructions": special_instructions
-    }
+    parts = subject.split(" - ")
+    if len(parts) >= 3:
+        address = parts[2].strip()
+    return {"address": address, "order_id": order_id, "lender": "", "mortgage": "", "who_pays": ""}
 
 
 def extract_nationwide_body(subject, body):
+    """Extract NAS# and address from Nationwide body."""
     order_id = ""
     address = ""
-    lender = ""
-    client_name = ""
-    service_type = ""
-    loan_type = ""
-    cof_deadline = ""
-    special_instructions = ""
-
     # NAS# from subject
     match = re.search(r'NAS\s*#?\s*(\d+)', subject, re.IGNORECASE)
     if match:
         order_id = "NAS#" + match.group(1)
-
-    # Extract from body
-    if body:
-        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            address = match.group(1).strip()
-
-        match = re.search(r'Lender[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            lender = match.group(1).strip()
-
-        match = re.search(r'Applicant Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            client_name = match.group(1).strip()
-
-        match = re.search(r'Service Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            service_type = match.group(1).strip()
-
-        match = re.search(r'Loan Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            loan_type = match.group(1).strip()
-
-        match = re.search(r'COF Deadline[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
-        if match:
-            val = match.group(1).strip()
-            if val:
-                cof_deadline = val
-
-        match = re.search(r'IMPORTANT NOTES.*?FROM CLIENT[:\s]*\n(.+?)(?:\n\n|\{By clicking|$)', body, re.IGNORECASE | re.DOTALL)
-        if match:
-            val = match.group(1).strip()
-            if val:
-                special_instructions = val
-
-    return {
-        "address": address,
-        "order_id": order_id,
-        "lender": lender,
-        "client_name": client_name,
-        "mortgage": service_type,
-        "who_pays": loan_type,
-        "special_instructions": special_instructions,
-        "cof_deadline": cof_deadline
-    }
+    # Address from body
+    match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+    if match:
+        address = match.group(1).strip()
+    return {"address": address, "order_id": order_id, "lender": "", "mortgage": "", "who_pays": ""}
 
 
 def extract_nas_special_subject(subject, body):
+    """Extract from Nationwide special subject.
+    Format: Quote for NAS #11500844 | 128 CIRCLE RD, Lake St Peter, ON
+    """
     order_id = ""
     address = ""
     match = re.search(r'NAS\s*#?\s*(\d+)', subject, re.IGNORECASE)
@@ -440,10 +306,11 @@ def extract_nas_special_subject(subject, body):
     match = re.search(r'\|\s*(?:Address\s*:\s*)?(.+?)$', subject, re.IGNORECASE)
     if match:
         address = match.group(1).strip()
-    return {"address": address, "order_id": order_id, "lender": "", "mortgage": "", "who_pays": "", "client_name": ""}
+    return {"address": address, "order_id": order_id, "lender": "", "mortgage": "", "who_pays": ""}
 
 
 def extract_alpine_body(subject, body):
+    """Extract from Alpine Credits structured email body."""
     order_id = ""
     client_name = ""
     address = ""
@@ -451,14 +318,18 @@ def extract_alpine_body(subject, body):
     lender = ""
     who_pays = ""
 
+    # Order # from subject: Alpine Credits #462977 Barbeau, Elaine Christine
     match = re.search(r'#(\d+)', subject)
     if match:
         order_id = "#" + match.group(1)
 
+    # Client name from subject (after order #)
     match = re.search(r'#\d+\s+(.+?)\s*-\s*Appraisal', subject)
     if match:
         client_name = match.group(1).strip()
 
+    # Address from body — line after client phone/email line
+    # Pattern: Name (Home Phone: ...; Home Email: ...)\nADDRESS\nCITY PROV POSTAL
     match = re.search(
         r'Home Email:[^\n]+\n(.+?)\n(.+?(?:ON|BC|AB|QC|MB|SK|NS|NB|PE|NL)\s+\w+\d\w+)',
         body, re.IGNORECASE | re.DOTALL
@@ -466,16 +337,19 @@ def extract_alpine_body(subject, body):
     if match:
         address = match.group(1).strip() + ", " + match.group(2).strip()
 
+    # Mortgage type
     if re.search(r'1st mortgage|first mortgage', body, re.IGNORECASE):
         mortgage = "1st Mortgage"
     elif re.search(r'2nd mortgage|second mortgage', body, re.IGNORECASE):
         mortgage = "2nd Mortgage"
 
+    # Who pays
     if re.search(r'Our Company will pay', body, re.IGNORECASE):
         who_pays = "Co. Pays"
     elif re.search(r'The Client will pay', body, re.IGNORECASE):
         who_pays = "Client Pays"
 
+    # Intended user / lender
     match = re.search(r'intended user to be[:\s*]+(.+?)(?:\*|\n|$)', body, re.IGNORECASE)
     if match:
         lender = match.group(1).strip().strip('*').strip()
@@ -491,11 +365,12 @@ def extract_alpine_body(subject, body):
 
 
 def extract_alpine_cancelled(subject, body):
+    """Extract from Alpine Credits cancellation reply."""
     order_id = ""
     match = re.search(r'#(\d+)', subject)
     if match:
         order_id = "#" + match.group(1)
-    return {"address": "", "order_id": order_id, "lender": "", "mortgage": "", "who_pays": "", "client_name": ""}
+    return {"address": "", "order_id": order_id, "lender": "", "mortgage": "", "who_pays": ""}
 
 
 EXTRACTORS = {
@@ -514,11 +389,13 @@ EXTRACTORS = {
 # ─────────────────────────────────────────────
 
 def send_to_ha(alert):
+    """Send alert to Home Assistant as a sensor state + event."""
     headers = {
         "Authorization": f"Bearer {HA_TOKEN}",
         "Content-Type": "application/json"
     }
 
+    # Build display lines
     lines = [f"{alert['icon']} {alert['label']}"]
     if alert.get("order_id"):
         lines.append(alert["order_id"])
@@ -534,10 +411,8 @@ def send_to_ha(alert):
         lines.append(f"Lender: {alert['lender']}")
 
     display_text = "\n".join(lines)
-    notification_title = f"{alert['icon']} {alert['label']}"
-    notification_message = "\n".join(lines[1:]) if len(lines) > 1 else "Check email for details"
 
-    # 1. Update sensor
+    # Update HA sensor
     sensor_payload = {
         "state": alert["alert_type"],
         "attributes": {
@@ -551,14 +426,13 @@ def send_to_ha(alert):
             "lender": alert.get("lender", ""),
             "who_pays": alert.get("who_pays", ""),
             "client_name": alert.get("client_name", ""),
-            "special_instructions": alert.get("special_instructions", ""),
-             "cof_deadline": alert.get("cof_deadline", ""),
             "buzzer": alert.get("buzzer", ""),
             "display_text": display_text,
             "last_updated": datetime.now(timezone.utc).isoformat(),
             "rule_name": alert.get("rule_name", "")
         }
     }
+
     try:
         r = requests.post(
             f"{HA_URL}/api/states/sensor.appraisal_alert",
@@ -567,100 +441,62 @@ def send_to_ha(alert):
             timeout=10
         )
         r.raise_for_status()
-        log.info(f"✅ Sensor updated: {alert['label']}")
+        log.info(f"✅ HA sensor updated: {alert['label']}")
     except Exception as e:
-        log.error(f"❌ Sensor update failed: {e}")
+        log.error(f"❌ Failed to update HA sensor: {e}")
 
-    # 2. Fire event
+    # Fire HA event
+    event_payload = {
+        "alert_type": alert["alert_type"],
+        "label": alert["label"],
+        "buzzer": alert.get("buzzer", "new_order"),
+        "display_text": display_text
+    }
+
     try:
         r = requests.post(
             f"{HA_URL}/api/events/appraisal_alert",
             headers=headers,
-            json={
-                "alert_type": alert["alert_type"],
-                "label": alert["label"],
-                "buzzer": alert.get("buzzer", "new_order"),
-                "display_text": display_text
-            },
+            json=event_payload,
             timeout=10
         )
         r.raise_for_status()
-        log.info(f"✅ Event fired: appraisal_alert")
+        log.info(f"✅ HA event fired: appraisal_alert")
     except Exception as e:
-        log.error(f"❌ Event fire failed: {e}")
+        log.error(f"❌ Failed to fire HA event: {e}")
 
-    # 3. Phone notification
-    try:
-        r = requests.post(
-            f"{HA_URL}/api/services/notify/mobile_app_rob_s_s23_ultra",
-            headers=headers,
-            json={
-                "title": notification_title,
-                "message": notification_message,
-                "data": {
-                    "push": {
-                        "sound": "default",
-                        "badge": 1
-                    }
-                }
-            },
-            timeout=10
-        )
-        r.raise_for_status()
-        log.info(f"✅ Phone notification sent")
-    except Exception as e:
-        log.error(f"❌ Phone notification failed: {e}")
-
-    # 4. Append to history file
-    try:
-        history_file = "/config/appraisal_history.json"
-        try:
-            with open(history_file, "r") as f:
-                history = json.load(f)
-        except:
-            history = []
-        
-        history.insert(0, {
-            "time": datetime.now(timezone.utc).isoformat(),
-            "label": alert.get("label", ""),
-            "order_id": alert.get("order_id", ""),
-            "address": alert.get("address", ""),
-            "mortgage": alert.get("mortgage", ""),
-            "lender": alert.get("lender", ""),
-            "client_name": alert.get("client_name", ""),
-            "alert_type": alert.get("alert_type", ""),
-            "special_instructions": alert.get("special_instructions", "")
-        })
-        history = history[:20]  # Keep last 20
-        
-        with open(history_file, "w") as f:
-            json.dump(history, f)
-        log.info(f"✅ History updated")
-    except Exception as e:
-        log.error(f"❌ History update failed: {e}")
 
 # ─────────────────────────────────────────────
 # EMAIL MATCHING
 # ─────────────────────────────────────────────
 
 def match_rule(rule, from_addr, subject, body, account_email):
+    """Check if an email matches a rule."""
+
+    # Must match account
     if rule.get("account") and rule["account"] != account_email:
         return False
 
     from_addr = from_addr.lower()
 
+    # Match by exact address
     if rule.get("from_address"):
         if rule["from_address"].lower() not in from_addr:
             return False
+
+    # Match by domain
     elif rule.get("from_domain"):
         if rule["from_domain"].lower() not in from_addr:
             return False
 
+    # Subject keyword match (if specified, at least one must match)
     if rule.get("subject_contains"):
         if not any(kw.lower() in subject.lower() for kw in rule["subject_contains"]):
+            # Check body_contains as fallback
             if not rule.get("body_contains"):
                 return False
 
+    # Body keyword match (for cancellations buried in threads)
     if rule.get("body_contains"):
         if not any(kw.lower() in body.lower() for kw in rule["body_contains"]):
             return False
@@ -669,20 +505,25 @@ def match_rule(rule, from_addr, subject, body, account_email):
 
 
 def process_email(msg, account_email):
+    """Process a single email against all rules."""
     from_raw = msg.get("From", "")
     subject = decode_header_value(msg.get("Subject", ""))
     body = get_email_body(msg)
 
+    # Extract from address
     match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', from_raw)
     from_addr = match.group(0).lower() if match else from_raw.lower()
 
-    log.info(f"📧 FROM={from_addr} | SUBJECT={subject[:60]}")
+    log.info(f"📧 Processing: FROM={from_addr} | SUBJECT={subject[:60]}")
 
     for rule in RULES:
         if match_rule(rule, from_addr, subject, body, account_email):
-            log.info(f"✅ Matched: {rule['name']}")
+            log.info(f"✅ Matched rule: {rule['name']}")
+
+            # Extract data
             extractor = EXTRACTORS.get(rule["extract"])
             extracted = extractor(subject, body) if extractor else {}
+
             alert = {
                 "rule_name": rule["name"],
                 "icon": rule["icon"],
@@ -691,18 +532,20 @@ def process_email(msg, account_email):
                 "buzzer": rule["buzzer"],
                 **extracted
             }
+
             send_to_ha(alert)
             return True
 
-    log.info("⏭️  No rule matched")
+    log.info(f"⏭️  No rule matched")
     return False
 
 
 # ─────────────────────────────────────────────
-# GMAIL IMAP
+# GMAIL IMAP MONITOR
 # ─────────────────────────────────────────────
 
 def check_gmail(account):
+    """Connect to Gmail and check for new unread emails."""
     email_addr = account["email"]
     app_password = account["app_password"]
 
@@ -711,39 +554,42 @@ def check_gmail(account):
         mail.login(email_addr, app_password)
         mail.select("INBOX")
 
+        # Search for unread emails
         _, data = mail.search(None, "UNSEEN")
         msg_ids = data[0].split()
 
         if not msg_ids:
-            log.debug(f"📭 No new mail: {email_addr}")
+            log.debug(f"📭 No new mail for {email_addr}")
             mail.logout()
             return
 
-        log.info(f"📬 {len(msg_ids)} new email(s): {email_addr}")
+        log.info(f"📬 {len(msg_ids)} new email(s) for {email_addr}")
 
         for msg_id in msg_ids:
             _, msg_data = mail.fetch(msg_id, "(RFC822)")
             raw = msg_data[0][1]
             msg = email.message_from_bytes(raw)
-            process_email(msg, email_addr)
+            matched = process_email(msg, email_addr)
+
+            # Mark as read regardless (so we don't re-process)
             mail.store(msg_id, "+FLAGS", "\\Seen")
 
         mail.logout()
 
     except imaplib.IMAP4.error as e:
-        log.error(f"❌ IMAP error {email_addr}: {e}")
+        log.error(f"❌ IMAP error for {email_addr}: {e}")
     except Exception as e:
-        log.error(f"❌ Error {email_addr}: {e}")
+        log.error(f"❌ Unexpected error for {email_addr}: {e}")
 
 
 # ─────────────────────────────────────────────
-# MAIN
+# MAIN LOOP
 # ─────────────────────────────────────────────
 
 def main():
     log.info("🚀 Appraisal Monitor started")
-    log.info(f"📧 Monitoring {len(GMAIL_ACCOUNTS)} account(s)")
-    log.info(f"🔁 Poll every {POLL_INTERVAL}s")
+    log.info(f"📧 Monitoring {len(GMAIL_ACCOUNTS)} Gmail account(s)")
+    log.info(f"🔁 Poll interval: {POLL_INTERVAL}s")
 
     while True:
         for account in GMAIL_ACCOUNTS:
