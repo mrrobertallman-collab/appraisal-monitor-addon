@@ -528,6 +528,34 @@ def send_to_ha(alert):
     except Exception as e:
         log.error(f"❌ Failed to fire HA event: {e}")
 
+    # 3. Append to history file
+    try:
+        history_file = "/config/appraisal_history.json"
+        try:
+            with open(history_file, "r") as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+
+        history.insert(0, {
+            "time": datetime.now(timezone.utc).isoformat(),
+            "label": alert.get("label", ""),
+            "order_id": alert.get("order_id", ""),
+            "address": alert.get("address", ""),
+            "mortgage": alert.get("mortgage", ""),
+            "lender": alert.get("lender", ""),
+            "client_name": alert.get("client_name", ""),
+            "alert_type": alert.get("alert_type", ""),
+            "special_instructions": alert.get("special_instructions", "")
+        })
+        history = history[:20]
+
+        with open(history_file, "w") as f:
+            json.dump(history, f)
+        log.info(f"✅ History updated")
+    except Exception as e:
+        log.error(f"❌ History update failed: {e}")
+
 
 # ─────────────────────────────────────────────
 # EMAIL MATCHING
