@@ -611,7 +611,7 @@ def send_to_ha(alert):
     except Exception as e:
         log.error(f"❌ Phone notification failed: {e}")
 
-# 4. Append to history file
+    # 4. Append to history file
     try:
         history_file = "/config/appraisal_history.json"
         try:
