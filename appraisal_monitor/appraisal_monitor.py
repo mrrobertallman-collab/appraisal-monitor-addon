@@ -270,6 +270,13 @@ def extract_rps_subject(subject, body):
     condition_date = ""
     special_instructions = ""
     lender = ""
+    emv = ""
+    contact_name = ""
+    contact_number = ""
+
+    # Cut off repeated sections first
+    body = body.split("Form Type:")[0]
+    body = body.split("Due Date:")[0] if body.count("Due Date:") > 1 else body
 
     match = re.search(r'[–—-]\s*(.+?)(?:\s*$)', subject)
     if match:
@@ -296,14 +303,40 @@ def extract_rps_subject(subject, body):
         if match:
             condition_date = match.group(1).strip()
 
-        match = re.search(r'Special Instruction[s]?[:\s]+(.+?)(?:\n\n|For additional|$)', body, re.IGNORECASE)
+        match = re.search(r'Contact Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            contact_name = match.group(1).strip()
+
+        match = re.search(r'Contact Number[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            contact_number = match.group(1).strip()
+
+        match = re.search(r'EMV[:\s]+\$?([\d,]+(?:\.\d{2})?)', body, re.IGNORECASE)
+        if match:
+            emv = match.group(1).strip()
+
+        match = re.search(
+            r'Special Instruction[s]?[:\s]+(.+?)(?:For additional instructions|Regards,|If you have any questions|$)',
+            body,
+            re.IGNORECASE | re.DOTALL
+        )
         if match:
             val = match.group(1).strip()
-            if val:
-                special_instructions = val[:200]
-                lender_match = re.search(r'^(\w+)', val, re.IGNORECASE)
-                if lender_match:
-                    lender = lender_match.group(1).strip()
+            val = re.sub(r'\s+', ' ', val).strip()
+            special_instructions = val[:220]
+
+            lender_match = re.search(r'^([A-Za-z0-9&.\- ]+?)\s+Full Appraisal', val, re.IGNORECASE)
+            if lender_match:
+                lender = lender_match.group(1).strip()
+
+        if not lender:
+            match = re.search(r'Lender[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+            if match:
+                lender = match.group(1).strip()
+
+    address = re.sub(r'^[A-Z]\s+', '', address).strip()
+    address = address.title()
+
     return {
         "address": address,
         "order_id": order_id,
@@ -312,7 +345,10 @@ def extract_rps_subject(subject, body):
         "who_pays": condition_date,
         "lender": lender,
         "special_instructions": special_instructions,
-        "cof_deadline": ""
+        "cof_deadline": "",
+        "emv": emv,
+        "contact_name": contact_name,
+        "contact_number": contact_number,
     }
 
 
@@ -566,9 +602,15 @@ def send_to_ha(alert):
     if alert.get("mortgage"):
         lines.append(alert["mortgage"])
     if alert.get("who_pays"):
-        lines.append(alert["who_pays"])
+        lines.append(f"Due: {alert['who_pays']}")
+    if alert.get("emv"):
+        lines.append(f"EMV: ${alert['emv']}")
+    if alert.get("contact_name") or alert.get("contact_number"):
+        lines.append(f"Contact: {alert.get('contact_name','')} {alert.get('contact_number','')}".strip())
     if alert.get("lender"):
         lines.append(f"Lender: {alert['lender']}")
+    if alert.get("special_instructions"):
+        lines.append(f"Instructions: {alert['special_instructions']}")
 
     display_text = "\n".join(lines)
 
