@@ -271,7 +271,8 @@ def extract_solidifi_body(subject, body):
 
 
 def extract_nationwide_body(subject, body):
-    """Extract from Nationwide email body."""
+    """Extract from Nationwide email body.
+    COF Deadline now becomes the Due Date when present."""
     order_id = ""
     address = ""
     lender = ""
@@ -306,13 +307,21 @@ def extract_nationwide_body(subject, body):
         if match:
             loan_type = match.group(1).strip()
 
+        # COF Deadline - used as Due Date
         match = re.search(r'COF Deadline[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
         if match:
-            cof_deadline = match.group(1).strip()
+            val = match.group(1).strip()
+            if val:
+                cof_deadline = val
 
         match = re.search(r'IMPORTANT NOTES.*?FROM CLIENT[:\s]*\n(.+?)(?:\n\n|\{By clicking|$)', body, re.IGNORECASE | re.DOTALL)
         if match:
-            special_instructions = match.group(1).strip()
+            val = match.group(1).strip()
+            if val:
+                special_instructions = val
+
+    # Use COF Deadline as Due Date if it exists, otherwise fall back to Loan Type
+    due_date = cof_deadline if cof_deadline else loan_type
 
     return {
         "address": address,
@@ -320,11 +329,10 @@ def extract_nationwide_body(subject, body):
         "lender": lender,
         "client_name": client_name,
         "mortgage": service_type,
-        "who_pays": loan_type,
+        "who_pays": due_date,           # ← This is what shows as "Due Date" in your card
         "special_instructions": special_instructions,
         "cof_deadline": cof_deadline
     }
-
 
 def extract_nas_special_subject(subject, body):
     """Extract from Nationwide special subject."""
