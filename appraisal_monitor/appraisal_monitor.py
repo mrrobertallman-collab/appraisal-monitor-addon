@@ -316,7 +316,7 @@ def get_line_value(lines, label, max_lookahead=3):
 
 
 def extract_rps_from_html(html, subject=""):
-    """Improved RPS HTML parser with much cleaner Special Instructions."""
+    """Final RPS parser - fixes lender + cleans Special Instructions on all formats."""
     lines = html_to_lines(html)
 
     address = get_line_value(lines, "Property Address")
@@ -328,29 +328,35 @@ def extract_rps_from_html(html, subject=""):
     contact_name = get_line_value(lines, "Contact Name")
     contact_number = get_line_value(lines, "Contact Number")
 
-    # Special Instructions - aggressive cleaning to remove RPS boilerplate
-    special_instructions = get_line_value(lines, "Special Instruction", max_lookahead=8)
+    # Get raw special instructions first (for reliable lender detection)
+    special_raw = get_line_value(lines, "Special Instruction", max_lookahead=10)
+
+    # Clean special instructions
+    special_instructions = special_raw
     if special_instructions:
-        # Cut off everything after the useful info
         if "For additional instructions" in special_instructions:
             special_instructions = special_instructions.split("For additional instructions", 1)[0].strip()
-        
-        # Remove noisy prefixes and junk
-        special_instructions = re.sub(r'^\s*[A-Z]+ Full Appraisal for ,ph:\s*', '', special_instructions, flags=re.IGNORECASE)
-        special_instructions = re.sub(r',ph:\s*\([^)]+\)', '', special_instructions)
-        special_instructions = re.sub(r',ph:|,alt:', ' ', special_instructions)
-        special_instructions = re.sub(r'\s+', ' ', special_instructions).strip()
 
-    # Lender from the first word of special instructions
+        # Remove junk in any order
+        special_instructions = re.sub(r'^\s*\(Purchase\)|\(Refinance\)|\(Sale\)', '', special_instructions, flags=re.IGNORECASE)
+        special_instructions = re.sub(r',?contact:.*?(?=\s|$|;)', '', special_instructions, flags=re.IGNORECASE)
+        special_instructions = re.sub(r',?EMV:.*?(?=\s|$|;)', '', special_instructions)
+        special_instructions = re.sub(r'\b[\w\.-]+@[\w\.-]+\.\w+\b', '', special_instructions)   # emails
+        special_instructions = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '', special_instructions)  # phones
+        special_instructions = re.sub(r'Requester Name:.*?;', '', special_instructions, flags=re.IGNORECASE)
+        special_instructions = re.sub(r';PropertyStyle:.*?(?=,|$)', '', special_instructions)
+        special_instructions = re.sub(r'\s+', ' ', special_instructions).strip(' ,;')
+
+    # Robust lender detection from RAW text
     lender = ""
-    if special_instructions:
-        m = re.match(r"^([A-Za-z0-9&.\-]+?)\s+Full Appraisal", special_instructions, re.IGNORECASE)
+    if special_raw:
+        m = re.search(r'(RBC|BMO|TD|Scotiabank|National Bank|CIBC)', special_raw, re.IGNORECASE)
         if m:
-            lender = m.group(1).strip()
-        else:
-            m = re.match(r"^([A-Za-z0-9&.\-]+?)\b", special_instructions)
-            if m:
-                lender = m.group(1).strip()
+            lender = m.group(1).upper()
+        elif re.search(r'@rbc\.com', special_raw, re.IGNORECASE):
+            lender = "RBC"
+        elif re.search(r'@bmo\.com', special_raw, re.IGNORECASE):
+            lender = "BMO"
 
     if not address:
         m = re.search(r"[–—-]\s*(.+?)\s*$", subject)
@@ -376,6 +382,71 @@ def extract_rps_from_html(html, subject=""):
         "contact_number": contact_number,
     }
 
+
+def extract_rps_subject(subject, body):
+    """Extract from RPS email body. Prefer structured HTML parsing."""
+    if "<html" in body.lower() or "<table" in body.lower() or "<div" in body.lower():
+        return extract_rps_from_html(body, subject)
+
+    # Plain-text fallback uses the same logic
+    lines = [re.sub(r"\s+", " ", line).strip() for line in body.splitlines() if line.strip()]
+
+    address = get_line_value(lines, "Property Address")
+    order_id = get_line_value(lines, "RPS Order ID")
+    emv = get_line_value(lines, "EMV")
+    client_name = get_line_value(lines, "Client Name")
+    appraisal_type = get_line_value(lines, "Appraisal Type")
+    condition_date = get_line_value(lines, "Condition Date")
+    contact_name = get_line_value(lines, "Contact Name")
+    contact_number = get_line_value(lines, "Contact Number")
+    special_raw = get_line_value(lines, "Special Instruction", max_lookahead=10)
+
+    special_instructions = special_raw
+    if special_instructions:
+        if "For additional instructions" in special_instructions:
+            special_instructions = special_instructions.split("For additional instructions", 1)[0].strip()
+        special_instructions = re.sub(r'^\s*\(Purchase\)|\(Refinance\)|\(Sale\)', '', special_instructions, flags=re.IGNORECASE)
+        special_instructions = re.sub(r',?contact:.*?(?=\s|$|;)', '', special_instructions, flags=re.IGNORECASE)
+        special_instructions = re.sub(r',?EMV:.*?(?=\s|$|;)', '', special_instructions)
+        special_instructions = re.sub(r'\b[\w\.-]+@[\w\.-]+\.\w+\b', '', special_instructions)
+        special_instructions = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '', special_instructions)
+        special_instructions = re.sub(r'Requester Name:.*?;', '', special_instructions, flags=re.IGNORECASE)
+        special_instructions = re.sub(r';PropertyStyle:.*?(?=,|$)', '', special_instructions)
+        special_instructions = re.sub(r'\s+', ' ', special_instructions).strip(' ,;')
+
+    lender = ""
+    if special_raw:
+        m = re.search(r'(RBC|BMO|TD|Scotiabank|National Bank|CIBC)', special_raw, re.IGNORECASE)
+        if m:
+            lender = m.group(1).upper()
+        elif re.search(r'@rbc\.com', special_raw, re.IGNORECASE):
+            lender = "RBC"
+        elif re.search(r'@bmo\.com', special_raw, re.IGNORECASE):
+            lender = "BMO"
+
+    if not address:
+        m = re.search(r"[–—-]\s*(.+?)\s*$", subject)
+        if m:
+            address = m.group(1).strip()
+
+    address = re.sub(r"^[A-Z]\s+", "", address).strip()
+    order_id = re.sub(r"[^\d]", "", order_id)
+    emv = re.sub(r"[^\d.,]", "", emv)
+    contact_number = re.sub(r"[^\d]", "", contact_number)
+
+    return {
+        "address": address,
+        "order_id": order_id,
+        "client_name": client_name,
+        "mortgage": appraisal_type,
+        "who_pays": condition_date,
+        "lender": lender,
+        "special_instructions": special_instructions,
+        "cof_deadline": "",
+        "emv": emv,
+        "contact_name": contact_name,
+        "contact_number": contact_number,
+    }
 
 def extract_rps_subject(subject, body):
     """Extract from RPS email body. Prefer structured HTML parsing."""
