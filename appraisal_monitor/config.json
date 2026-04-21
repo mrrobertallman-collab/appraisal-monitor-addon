@@ -1,6 +1,6 @@
 {
   "name": "Appraisal Monitor",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "slug": "appraisal_monitor",
   "description": "Monitors Gmail for appraisal requests from RPS, Solidifi, Nationwide and Alpine Credits. Sends alerts to Home Assistant.",
   "url": "https://github.com/mrrobertallman-collab/appraisal-monitor-addon",
