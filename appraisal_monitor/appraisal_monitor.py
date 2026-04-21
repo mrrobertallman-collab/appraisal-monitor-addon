@@ -680,6 +680,15 @@ def send_to_ha(alert):
         }
     }
 
+    log.info(f"DEBUG send_to_ha len(history)={len(history)}")
+    log.info(f"DEBUG send_to_ha first history item={history[0] if history else None}")
+    log.info(
+        f"DEBUG send_to_ha sensor_payload attribute keys={list(sensor_payload['attributes'].keys())}"
+    )
+    log.info(
+        f"DEBUG send_to_ha has history attribute={'history' in sensor_payload['attributes']}"
+    )
+
     try:
         r = requests.post(
             f"{HA_URL}/api/states/sensor.appraisal_alert",
