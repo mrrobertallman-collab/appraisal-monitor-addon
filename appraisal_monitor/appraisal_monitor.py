@@ -110,7 +110,7 @@ RULES = [
         "icon": "🔔",
         "label": "SOLIDIFI",
         "buzzer": "new_order",
-        "extract": "solidifi_subject"
+        "extract": "solidifi_body"
     },
     {
         "name": "SOLIDIFI_CANCELLED",
@@ -121,7 +121,7 @@ RULES = [
         "icon": "❌",
         "label": "CANCELLED — SOLIDIFI",
         "buzzer": "cancelled",
-        "extract": "solidifi_subject"
+        "extract": "solidifi_body"
     },
     {
         "name": "SOLIDIFI_UPDATE",
@@ -132,7 +132,7 @@ RULES = [
         "icon": "ℹ️",
         "label": "SOLIDIFI UPDATE",
         "buzzer": "update",
-        "extract": "solidifi_subject"
+        "extract": "solidifi_body"
     },
 
     # ── Nationwide ──────────────────────────────────────────────────
