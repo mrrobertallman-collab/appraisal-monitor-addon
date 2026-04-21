@@ -21,25 +21,30 @@ from email.utils import parsedate_to_datetime
 # ─────────────────────────────────────────────
 
 # Gmail accounts to monitor
+OPTIONS_FILE = "/data/options.json"
+try:
+    with open(OPTIONS_FILE) as f:
+        options = json.load(f)
+except Exception as e:
+    options = {}
+    print(f"Failed to load options: {e}")
+
 GMAIL_ACCOUNTS = [
     {
-        "email": "ontarioresidentialappraisal@gmail.com",
-        "app_password": "YOUR_APP_PASSWORD_1",   # Google App Password (not regular password)
+        "email": options.get("gmail_account_1", "ontarioresidentialappraisal@gmail.com"),
+        "app_password": options.get("app_password_1", ""),
         "label": "RPS Account"
     },
     {
-        "email": "ontarioappraiser@gmail.com",
-        "app_password": "YOUR_APP_PASSWORD_2",
+        "email": options.get("gmail_account_2", "ontarioappraiser@gmail.com"),
+        "app_password": options.get("app_password_2", ""),
         "label": "Main Account"
     }
 ]
 
-# Home Assistant connection
 HA_URL = "http://homeassistant.local:8123"
-HA_TOKEN = "YOUR_HA_LONG_LIVED_TOKEN"
-
-# How often to check email (seconds)
-POLL_INTERVAL = 60
+HA_TOKEN = options.get("ha_token", "")
+POLL_INTERVAL = int(options.get("poll_interval", 60))
 
 # Logging
 logging.basicConfig(
