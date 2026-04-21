@@ -699,6 +699,7 @@ def send_to_ha(alert):
             "special_instructions": alert.get("special_instructions", ""),
             "vendor": alert.get("vendor", ""),
             "status": alert.get("status", ""),
+            "who_pays": alert.get("who_pays", ""),
         })
         history = history[:20]
 
