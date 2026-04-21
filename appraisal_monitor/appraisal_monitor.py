@@ -265,13 +265,60 @@ def extract_rps_cancelled_subject(subject, body):
 def extract_solidifi_subject(subject, body):
     order_id = ""
     address = ""
+    lender = ""
+    client_name = ""
+    form_type = ""
+    due_date = ""
+    special_instructions = ""
+
+    # Order ID from subject
     match = re.search(r'(OR\d+)', subject)
     if match:
         order_id = match.group(1)
-    parts = subject.split(" - ")
-    if len(parts) >= 3:
-        address = parts[2].strip()
-    return {"address": address, "order_id": order_id, "lender": "", "mortgage": "", "who_pays": "", "client_name": ""}
+
+    # Extract from body if available
+    if body:
+        match = re.search(r'Property Address[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            address = match.group(1).strip()
+
+        match = re.search(r'Lender[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            lender = match.group(1).strip()
+
+        match = re.search(r'Borrower Name[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            client_name = match.group(1).strip()
+
+        match = re.search(r'Appraisal Form Type[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            form_type = match.group(1).strip()
+
+        match = re.search(r'Due Date[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            due_date = match.group(1).strip()
+
+        match = re.search(r'Special Instructions[:\s]+(.+?)(?:\n|$)', body, re.IGNORECASE)
+        if match:
+            val = match.group(1).strip()
+            if val:
+                special_instructions = val
+
+    # Fall back to subject for address if body extraction failed
+    if not address:
+        parts = subject.split(" - ")
+        if len(parts) >= 3:
+            address = re.sub(r'\s*-?\s*OR\d+.*$', '', parts[2]).strip()
+
+    return {
+        "address": address,
+        "order_id": order_id,
+        "lender": lender,
+        "client_name": client_name,
+        "mortgage": form_type,
+        "who_pays": due_date,
+        "special_instructions": special_instructions
+    }
 
 
 def extract_nationwide_body(subject, body):
