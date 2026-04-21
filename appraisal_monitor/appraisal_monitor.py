@@ -453,6 +453,7 @@ def send_to_ha(alert):
             "lender": alert.get("lender", ""),
             "who_pays": alert.get("who_pays", ""),
             "client_name": alert.get("client_name", ""),
+            "special_instructions": alert.get("special_instructions", ""),
             "buzzer": alert.get("buzzer", ""),
             "display_text": display_text,
             "last_updated": datetime.now(timezone.utc).isoformat(),
