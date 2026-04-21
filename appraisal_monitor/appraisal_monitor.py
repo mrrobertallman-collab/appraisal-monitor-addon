@@ -51,7 +51,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("/config/appraisal_monitor.log"),
+        logging.FileHandler("/data/appraisal_monitor.log"),
         logging.StreamHandler()
     ]
 )
@@ -680,7 +680,7 @@ def send_to_ha(alert):
 
     # 3. Append to history file
     try:
-        history_file = "/config/appraisal_history.json"
+        history_file = "/data/appraisal_history.json"
         try:
             with open(history_file, "r") as f:
                 history = json.load(f)
