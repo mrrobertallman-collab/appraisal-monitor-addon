@@ -825,7 +825,7 @@ def check_gmail(account):
 
         # Search for unread emails WITHOUT the AppraisalProcessed label
         # This preserves your read/unread status — we never mark emails as read
-        _, data = mail.uid('search', 'X-GM-RAW', 'is:unread -label:AppraisalProcessed')
+        _, data = mail.uid('search', None, 'X-GM-RAW', '"is:unread -label:AppraisalProcessed"')
         msg_ids = data[0].split()
 
         if not msg_ids:
