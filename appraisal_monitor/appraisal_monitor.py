@@ -812,7 +812,7 @@ def process_email(msg, account_email):
 # ─────────────────────────────────────────────
 
 def check_gmail(account):
-    """Connect to Gmail and check for new unread emails."""
+    """Connect to Gmail and check for new unprocessed emails."""
     email_addr = account["email"]
     app_password = account["app_password"]
 
@@ -821,6 +821,8 @@ def check_gmail(account):
         mail.login(email_addr, app_password)
         mail.select("INBOX")
 
+        # Search for unread emails WITHOUT the AppraisalProcessed label
+        # This preserves your read/unread status — we never mark emails as read
         _, data = mail.uid('search', 'X-GM-RAW', 'is:unread -label:AppraisalProcessed')
         msg_ids = data[0].split()
 
@@ -832,11 +834,11 @@ def check_gmail(account):
         log.info(f"📬 {len(msg_ids)} new email(s) for {email_addr}")
 
         for msg_id in msg_ids:
-            _, msg_data = mail.fetch(msg_id, "(RFC822)")
+            _, msg_data = mail.uid('fetch', msg_id, "(RFC822)")
             raw = msg_data[0][1]
             msg = email.message_from_bytes(raw)
             process_email(msg, email_addr)
-            # Apply label instead of marking as read — preserves your read/unread status
+            # Apply label instead of marking as read — preserves your inbox read/unread status
             mail.uid('store', msg_id, '+X-GM-LABELS', '"AppraisalProcessed"')
 
         mail.logout()
@@ -845,7 +847,6 @@ def check_gmail(account):
         log.error(f"❌ IMAP error for {email_addr}: {e}")
     except Exception as e:
         log.error(f"❌ Unexpected error for {email_addr}: {e}")
-
 
 # ─────────────────────────────────────────────
 # MAIN LOOP
