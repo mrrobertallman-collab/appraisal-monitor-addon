@@ -846,7 +846,7 @@ def check_gmail(account):
             msg = email.message_from_bytes(raw)
             process_email(msg, email_addr)
             # Apply label instead of marking as read — preserves your inbox read/unread status
-            mail.uid('store', msg_id, '+X-GM-LABELS', '"AppraisalProcessed"')
+            mail.uid('store', msg_id, '+X-GM-LABELS', '"HA"')
 
         mail.logout()
 
