@@ -821,7 +821,7 @@ def check_gmail(account):
         mail.login(email_addr, app_password)
         mail.select("INBOX")
 
-        _, data = mail.search(None, "UNSEEN")
+        _, data = mail.uid('search', 'X-GM-RAW', 'is:unread -label:AppraisalProcessed')
         msg_ids = data[0].split()
 
         if not msg_ids:
