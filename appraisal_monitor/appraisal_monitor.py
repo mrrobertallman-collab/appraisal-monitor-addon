@@ -3,7 +3,7 @@
 Appraisal Email Monitor
 Monitors Gmail accounts for appraisal requests and sends alerts to Home Assistant.
 Supports: RPS, Solidifi, Nationwide, Alpine Credits
-Version: 1.1.3
+Version: 1.1.4
 # 1.1.2 — Switched from read/unread to Gmail label AppraisalProcessed
 #          Preserves inbox read/unread status for personal email management
 """
@@ -825,7 +825,7 @@ def check_gmail(account):
 
         # Search for unread emails WITHOUT the AppraisalProcessed label
         # This preserves your read/unread status — we never mark emails as read
-        _, data = mail.uid('search', None, 'X-GM-RAW', '"is:unread -label:AppraisalProcessed"')
+        _, data = mail.uid('search', None, 'X-GM-RAW', '"-label:AppraisalProcessed after:2026/04/15"')
         msg_ids = data[0].split()
 
         if not msg_ids:
