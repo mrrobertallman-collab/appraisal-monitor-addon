@@ -827,9 +827,9 @@ def check_gmail(account):
         mail.login(email_addr, app_password)
         mail.select("INBOX")
 
-        # Search for unread emails WITHOUT the AppraisalProcessed label
+        # Search for unread emails WITHOUT the HA (formally AppraisalProcessed) label
         # This preserves your read/unread status — we never mark emails as read
-        _, data = mail.uid('search', None, 'X-GM-RAW', '"-label:AppraisalProcessed after:2026/04/15"')
+        _, data = mail.uid('search', None, 'X-GM-RAW', '"-label:HA after:2026/04/25"')
         msg_ids = data[0].split()
 
         if not msg_ids:
