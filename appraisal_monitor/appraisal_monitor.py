@@ -836,7 +836,8 @@ def check_gmail(account):
         log.info(f"📬 {len(msg_ids)} new email(s) for {email_addr}")
 
         for msg_id in msg_ids:
-            _, msg_data = mail.uid('fetch', msg_id, "(RFC822)")
+            _, msg_data = mail.uid('fetch', msg_id, "(BODY.PEEK[])")
+            # Above reads message but leaves it in an unread state
             raw = msg_data[0][1]
             msg = email.message_from_bytes(raw)
             process_email(msg, email_addr)
