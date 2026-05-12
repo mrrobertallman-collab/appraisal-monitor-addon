@@ -676,7 +676,7 @@ def send_to_ha(alert):
             "cof_deadline": alert.get("cof_deadline", ""),
             "buzzer": alert.get("buzzer", ""),
             "display_text": display_text,
-            "last_updated": datetime.now(timezone.utc).isoformat(),
+            "last_updated": alert.get("email_date") or datetime.now(timezone.utc).isoformat(),
             "rule_name": alert.get("rule_name", ""),
             "emv": alert.get("emv", ""),
             "contact_name": alert.get("contact_name", ""),
@@ -769,6 +769,15 @@ def process_email(msg, account_email):
 
     log.info(f"📧 Processing: FROM={from_addr} | SUBJECT={subject[:60]}")
 
+    # Parse actual email sent date from the Date header
+    # Ensures display shows when email was SENT, not when monitor processed it
+    raw_date = msg.get("Date", "")
+    try:
+        from email.utils import parsedate_to_datetime
+        email_dt = parsedate_to_datetime(raw_date).astimezone(timezone.utc).isoformat()
+    except Exception:
+        email_dt = datetime.now(timezone.utc).isoformat()  # fallback if header missing
+
     for rule in RULES:
         if match_rule(rule, from_addr, subject, body, account_email):
             log.info(f"✅ Matched rule: {rule['name']}")
@@ -796,6 +805,7 @@ def process_email(msg, account_email):
                 "label": rule["label"],
                 "alert_type": rule["alert_type"],
                 "buzzer": rule["buzzer"],
+                "email_date": email_dt,     # actual email sent date
                 **extracted
             }
 
